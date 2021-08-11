@@ -1,0 +1,10 @@
+# Configuration Files
+.idea
+__pycache__
+
+# Notes / Human Readable
+*.odt
+.~lock.*
+
+# Passive Pigeon Specific
+caps/

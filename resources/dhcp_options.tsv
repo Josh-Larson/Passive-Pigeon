@@ -1,0 +1,189 @@
+0	Pad	0	None
+1	Subnet Mask	4	Subnet Mask Value
+2	Time Offset	4	Time Offset in Seconds from UTC (note: deprecated by 100 and 101)
+3	Router	N	N/4 Router addresses
+4	Time Server	N	N/4 Timeserver addresses
+5	Name Server	N	N/4 IEN-116 Server addresses
+6	Domain Server	N	N/4 DNS Server addresses
+7	Log Server	N	N/4 Logging Server addresses
+8	Quotes Server	N	N/4 Quotes Server addresses
+9	LPR Server	N	N/4 Printer Server addresses
+10	Impress Server	N	N/4 Impress Server addresses
+11	RLP Server	N	N/4 RLP Server addresses
+12	Hostname	N	Hostname string
+13	Boot File Size	2	Size of boot file in 512 byte chunks
+14	Merit Dump File	N	Client to dump and name the file to dump it to
+15	Domain Name	N	The DNS domain name of the client
+16	Swap Server	N	Swap Server address
+17	Root Path	N	Path name for root disk
+18	Extension File	N	Path name for more BOOTP info
+19	Forward On/Off	1	Enable/Disable IP Forwarding
+20	SrcRte On/Off	1	Enable/Disable Source Routing
+21	Policy Filter	N	Routing Policy Filters
+22	Max DG Assembly	2	Max Datagram Reassembly Size
+23	Default IP TTL	1	Default IP Time to Live
+24	MTU Timeout	4	Path MTU Aging Timeout
+25	MTU Plateau	N	Path MTU Plateau Table
+26	MTU Interface	2	Interface MTU Size
+27	MTU Subnet	1	All Subnets are Local
+28	Broadcast Address	4	Broadcast Address
+29	Mask Discovery	1	Perform Mask Discovery
+30	Mask Supplier	1	Provide Mask to Others
+31	Router Discovery	1	Perform Router Discovery
+32	Router Request	4	Router Solicitation Address
+33	Static Route	N	Static Routing Table
+34	Trailers	1	Trailer Encapsulation
+35	ARP Timeout	4	ARP Cache Timeout
+36	Ethernet	1	Ethernet Encapsulation
+37	Default TCP TTL	1	Default TCP Time to Live
+38	Keepalive Time	4	TCP Keepalive Interval
+39	Keepalive Data	1	TCP Keepalive Garbage
+40	NIS Domain	N	NIS Domain Name
+41	NIS Servers	N	NIS Server Addresses
+42	NTP Servers	N	NTP Server Addresses
+43	Vendor Specific	N	Vendor Specific Information
+44	NETBIOS Name Srv	N	NETBIOS Name Servers
+45	NETBIOS Dist Srv	N	NETBIOS Datagram Distribution
+46	NETBIOS Node Type	1	NETBIOS Node Type
+47	NETBIOS Scope	N	NETBIOS Scope
+48	X Window Font	N	X Window Font Server
+49	X Window Manager	N	X Window Display Manager
+50	Address Request	4	Requested IP Address
+51	Address Time	4	IP Address Lease Time
+52	Overload	1	Overload "sname" or "file"
+53	DHCP Msg Type	1	DHCP Message Type
+54	DHCP Server Id	4	DHCP Server Identification
+55	Parameter List	N	Parameter Request List
+56	DHCP Message	N	DHCP Error Message
+57	DHCP Max Msg Size	2	DHCP Maximum Message Size
+58	Renewal Time	4	DHCP Renewal (T1) Time
+59	Rebinding Time	4	DHCP Rebinding (T2) Time
+60	Class Id	N	Class Identifier
+61	Client Id	N	Client Identifier
+62	NetWare/IP Domain	N	NetWare/IP Domain Name
+63	NetWare/IP Option	N	NetWare/IP sub Options
+64	NIS-Domain-Name	N	NIS+ v3 Client Domain Name
+65	NIS-Server-Addr	N	NIS+ v3 Server Addresses
+66	Server-Name	N	TFTP Server Name
+67	Bootfile-Name	N	Boot File Name
+68	Home-Agent-Addrs	N	Home Agent Addresses
+69	SMTP-Server	N	Simple Mail Server Addresses
+70	POP3-Server	N	Post Office Server Addresses
+71	NNTP-Server	N	Network News Server Addresses
+72	WWW-Server	N	WWW Server Addresses
+73	Finger-Server	N	Finger Server Addresses
+74	IRC-Server	N	Chat Server Addresses
+75	StreetTalk-Server	N	StreetTalk Server Addresses
+76	STDA-Server	N	ST Directory Assist. Addresses
+77	User-Class	N	User Class Information
+78	Directory Agent	N	directory agent information
+79	Service Scope	N	service location agent scope
+80	Rapid Commit	0	Rapid Commit
+81	Client FQDN	N	Fully Qualified Domain Name
+82	Relay Agent Information	N	Relay Agent Information
+83	iSNS	N	Internet Storage Name Service
+84	REMOVED/Unassigned		
+85	NDS Servers	N	Novell Directory Services
+86	NDS Tree Name	N	Novell Directory Services
+87	NDS Context	N	Novell Directory Services
+88	BCMCS Controller Domain Name list		
+89	BCMCS Controller IPv4 address option		
+90	Authentication	N	Authentication
+91	client-last-transaction-time option		
+92	associated-ip option		
+93	Client System	N	Client System Architecture
+94	Client NDI	N	Client Network Device Interface
+95	LDAP	N	Lightweight Directory Access Protocol
+96	REMOVED/Unassigned		
+97	UUID/GUID	N	UUID/GUID-based Client Identifier
+98	User-Auth	N	Open Group's User Authentication
+99	GEOCONF_CIVIC		
+100	PCode	N	IEEE 1003.1 TZ String
+101	TCode	N	Reference to the TZ Database
+102-107	REMOVED/Unassigned		
+108	IPv6-Only Preferred	4	Number of seconds that DHCPv4 should be disabled
+109	OPTION_DHCP4O6_S46_SADDR	16	DHCPv4 over DHCPv6 Softwire Source Address Option
+110	REMOVED/Unassigned		
+111	Unassigned		
+112	Netinfo Address	N	NetInfo Parent Server Address
+113	Netinfo Tag	N	NetInfo Parent Server Tag
+114	DHCP Captive-Portal	N	DHCP Captive-Portal
+115	REMOVED/Unassigned		
+116	Auto-Config	N	DHCP Auto-Configuration
+117	Name Service Search	N	Name Service Search
+118	Subnet Selection Option	4	Subnet Selection Option
+119	Domain Search	N	DNS domain search list
+120	SIP Servers DHCP Option	N	SIP Servers DHCP Option
+121	Classless Static Route Option	N	Classless Static Route Option
+122	CCC	N	CableLabs Client Configuration
+123	GeoConf Option	16	GeoConf Option
+124	V-I Vendor Class		Vendor-Identifying Vendor Class
+125	V-I Vendor-Specific Information		Vendor-Identifying Vendor-Specific Information
+126	Removed/Unassigned		
+127	Removed/Unassigned		
+128	PXE - undefined (vendor specific)		
+128	Etherboot signature. 6 bytes: E4:45:74:68:00:00		
+128	DOCSIS "full security" server IP address		
+128	TFTP Server IP address (for IP Phone software load)		
+129	PXE - undefined (vendor specific)		
+129	Kernel options. Variable length string		
+129	Call Server IP address		
+130	PXE - undefined (vendor specific)		
+130	Ethernet interface. Variable length string.		
+130	Discrimination string (to identify vendor)		
+131	PXE - undefined (vendor specific)		
+131	Remote statistics server IP address		
+132	PXE - undefined (vendor specific)		
+132	IEEE 802.1Q VLAN ID		
+133	PXE - undefined (vendor specific)		
+133	IEEE 802.1D/p Layer 2 Priority		
+134	PXE - undefined (vendor specific)		
+134	Diffserv Code Point (DSCP) for VoIP signalling and media streams		
+135	PXE - undefined (vendor specific)		
+135	HTTP Proxy for phone-specific applications		
+136	OPTION_PANA_AGENT		
+137	OPTION_V4_LOST		
+138	OPTION_CAPWAP_AC_V4	N	CAPWAP Access Controller addresses
+139	OPTION-IPv4_Address-MoS	N	a series of suboptions
+140	OPTION-IPv4_FQDN-MoS	N	a series of suboptions
+141	SIP UA Configuration Service Domains	N	List of domain names to search for SIP User Agent Configuration
+142	OPTION-IPv4_Address-ANDSF	N	ANDSF IPv4 Address Option for DHCPv4
+143	OPTION_V4_SZTP_REDIRECT	N	This option provides a list of URIs for SZTP bootstrap servers
+144	GeoLoc	16	Geospatial Location with Uncertainty
+145	FORCERENEW_NONCE_CAPABLE	1	Forcerenew Nonce Capable
+146	RDNSS Selection	N	Information for selecting RDNSS
+147	OPTION_V4_DOTS_RI	N	The name of the peer DOTS agent.
+148	OPTION_V4_DOTS_ADDRESS	N (the minimal length is 4)	N/4 IPv4 addresses of peer DOTS agent(s).
+149	Unassigned		
+150	TFTP server address		
+150	Etherboot		
+150	GRUB configuration path name		
+151	status-code	N+1	Status code and optional N byte text message describing status.
+152	base-time	4	Absolute time (seconds since Jan 1, 1970) message was sent.
+153	start-time-of-state	4	Number of seconds in the past when client entered current state.
+154	query-start-time	4	Absolute time (seconds since Jan 1, 1970) for beginning of query.
+155	query-end-time	4	Absolute time (seconds since Jan 1, 1970) for end of query.
+156	dhcp-state	1	State of IP address.
+157	data-source	1	Indicates information came from local or remote server.
+158	OPTION_V4_PCP_SERVER	Variable; the minimum length is 5.	Includes one or multiple lists of PCP server IP addresses; each list is treated as a separate PCP server.
+159	OPTION_V4_PORTPARAMS	4	This option is used to configure a set of ports bound to a shared IPv4 address.
+160	Unassigned		Previously assigned by [RFC7710]; known to also be used by Polycom.
+161	OPTION_MUD_URL_V4	N (variable)	Manufacturer Usage Descriptions
+162-174	Unassigned		
+175	Etherboot (Tentatively Assigned - 2005-06-23)		
+176	IP Telephone (Tentatively Assigned - 2005-06-23)		
+177	Etherboot (Tentatively Assigned - 2005-06-23)		
+177	PacketCable and CableHome (replaced by 122)		
+178-207	Unassigned		
+208	PXELINUX Magic	4	magic string = F1:00:74:7E
+209	Configuration File	N	Configuration file
+210	Path Prefix	N	Path Prefix Option
+211	Reboot Time	4	Reboot Time
+212	OPTION_6RD	18 + N	OPTION_6RD with N/4 6rd BR addresses
+213	OPTION_V4_ACCESS_DOMAIN	N	Access Network Domain Name
+214-219	Unassigned		
+220	Subnet Allocation Option	N	Subnet Allocation Option
+221	Virtual Subnet Selection (VSS) Option		
+222-223	Unassigned		
+224-254	Reserved (Private Use)		
+255	End	0	None
