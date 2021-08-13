@@ -1,1 +1,4 @@
-# TODO: Add Readme - 08/11/2021
+# Passive Pigeon
+### A Passive Enumeration Tool
+
+The goal of this project is to have a completely passive tool for enumerating local area network devices.
