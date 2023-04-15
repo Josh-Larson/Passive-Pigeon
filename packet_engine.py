@@ -1,73 +1,11 @@
-from enum import Enum
 from struct import unpack, iter_unpack
-from typing import Tuple
+import pathlib
 import logging
 import socket
 import constants
 import re
 
-
-class MACAddressType(Enum):
-	UNKNOWN = 0
-	BROADCAST = 1
-	IPV4_MULTICAST = 2
-	MPLS_MULTICAST = 3
-	VRRP_IPV4 = 4
-	VRRP_IPV6 = 5
-	IPV6_MULTICAST = 6
-	POINT_TO_POINT = 7
-	LOCAL = 8
-	REGISTERED = 9
-
-
-class MACAddress:
-	oui_lookup = None
-	
-	def __init__(self, mac: bytes):
-		self.mac = mac
-		self.type, self.organization = self.get_organization(mac)
-	
-	def __repr__(self):
-		return "%s[%s/%s]" % (":".join("%02X" % b for b in self.mac), self.type.name, self.organization)
-	
-	@staticmethod
-	def get_organization(mac: bytes) -> Tuple[MACAddressType, str]:
-		if MACAddress.oui_lookup is None:
-			MACAddress.oui_lookup = {}
-			with open("resources/oui.txt", "r") as file:
-				for line in file.readlines():
-					if "(base 16)" not in line:
-						continue
-					idx = line.index("(base 16)")
-					oui = line[:idx].rstrip()
-					organization = line[idx + 9:].strip()
-					oui = "%s:%s:%s" % (oui[:2], oui[2:4], oui[4:6])
-					MACAddress.oui_lookup[oui] = organization
-		mac_oui = (mac[0] << 16) | (mac[1] << 8) | mac[2]
-		mac_adr = (mac[3] << 16) | (mac[4] << 8) | mac[5]
-		if mac_oui == 0xFFFFFF and mac_adr == 0xFFFFFF:
-			return MACAddressType.BROADCAST, ""
-		if mac_oui == 0x01005E:
-			if mac_adr < 0x800000:
-				return MACAddressType.IPV4_MULTICAST, ""
-			return MACAddressType.MPLS_MULTICAST, ""
-		if (mac_oui & 0xFFFF00) == 0x333300:
-			return MACAddressType.IPV6_MULTICAST, ""
-		if mac_oui == 0x00005E:
-			if (mac_adr & 0xFFFF00) == 0x0001:
-				return MACAddressType.VRRP_IPV4, ""
-			if (mac_adr & 0xFFFF00) == 0x0002:
-				return MACAddressType.VRRP_IPV6, ""
-			return MACAddressType.UNKNOWN, ""
-		if (mac_oui & 0xFF0000) == 0xCF0000:
-			return MACAddressType.POINT_TO_POINT, ""
-		if (mac_oui & 0b00000010_00000000_00000000) != 0:
-			return MACAddressType.LOCAL, ""
-		
-		src_mac_lookup = "%02X:%02X:%02X" % (mac[0], mac[1], mac[2])
-		if src_mac_lookup in MACAddress.oui_lookup:
-			return MACAddressType.REGISTERED, MACAddress.oui_lookup[src_mac_lookup]
-		return MACAddressType.UNKNOWN, ""
+from engine.mac import MACAddress, MACAddressType
 
 
 def get_ip(binary):
@@ -111,7 +49,8 @@ class PacketEngine:
 		self.mac_version_parser = re.compile("^model=([a-zA-Z]+)([0-9]+)(?:,([0-9]+))?$")
 		self.dhcp_option_lookup = {}
 		self.mdns_service_lookup = {}
-		with open("resources/dhcp_options.tsv", "r") as file:
+		engine_directory = pathlib.Path(__file__).parent.absolute()
+		with open("%s/resources/dhcp_options.tsv" % engine_directory, "r") as file:
 			for line in file.readlines():
 				line_split = line.strip().split("\t")
 				if "-" in line_split[0]:
@@ -119,7 +58,7 @@ class PacketEngine:
 						self.dhcp_option_lookup[i] = line_split[1:]
 				else:
 					self.dhcp_option_lookup[int(line_split[0])] = line_split[1:]
-		with open("resources/mdns_services.tsv", "r") as file:
+		with open("%s/resources/mdns_services.tsv" % engine_directory, "r") as file:
 			for line in file.readlines():
 				if "#" in line:
 					line = line[line.index("#")]
@@ -127,6 +66,18 @@ class PacketEngine:
 					continue
 				service_id, service_name = line.strip().split(":", 2)
 				self.mdns_service_lookup[service_id] = service_name
+	
+	def display_information(self):
+		for host in sorted(self.hosts.values(), key=lambda h: h.ip if h.ip is not None else b"\0\0\0\0"):
+			print("")
+			print("%-15s%s" % (host.get_ip_str(), host.mac))
+			for key, value in host.attributes.items():
+				if type(value) == list or type(value) == set:
+					print("    %s:" % key)
+					for v in value:
+						print("        %s" % v)
+				else:
+					print("    %s: %s" % (key, value))
 	
 	def handle_packet(self, packet):
 		ethernet_header = unpack("!6s6sH", packet[:14])
@@ -146,8 +97,8 @@ class PacketEngine:
 		
 		if ip_payload_type == 1:  # ICMP
 			self.handle_icmp(payload, ethernet_header, ip_header)
-		#elif ip_payload_type == 2:  # IGMP
-		#	self.handle_igmp(payload, ethernet_header, ip_header)
+		elif ip_payload_type == 2:  # IGMP
+			self.handle_igmp(payload, ethernet_header, ip_header)
 		elif ip_payload_type == 6:  # TCP
 			pass
 		elif ip_payload_type == 17:  # UDP
@@ -197,7 +148,6 @@ class PacketEngine:
 		pass
 	
 	def handle_igmp(self, packet, ethernet_header, ip_header):
-		print(" ".join(["%02X" % b for b in packet]))
 		if len(packet) < 8:
 			return
 		type = packet[0]
@@ -208,7 +158,7 @@ class PacketEngine:
 				logging.info("%s IGMPv2 Membership Query %02X %d %4X group=%s", str(cur_host), type, max_response_time, checksum, get_ip(group_address))
 			elif len(packet) >= 16:
 				value_set1, qqic, number_of_sources = unpack("!BBH", packet[8:12])
-				sources = [src for src in iter_unpack("!4s", packet[12:12+number_of_sources*4])]
+				sources = [src[0] for src in iter_unpack("!4s", packet[12:12+number_of_sources*4])]
 				logging.info("%s IGMPv3 Membership Query %02X %d %4X group=%s sources=%s", str(cur_host), type, max_response_time, checksum, get_ip(group_address), str(sources))
 		elif type == 0x12:  # IGMPv1 Membership Report
 			logging.info("%s IGMPv1 Membership Report", str(cur_host), type)
@@ -217,8 +167,15 @@ class PacketEngine:
 			logging.info("%s IGMPv2 Membership Report %02X %d %4X group=%s", str(cur_host), type, max_response_time, checksum, get_ip(group_address))
 		elif type == 0x22:  # IGMPv3 Membership Report
 			type, _, checksum, _, num_group_records = unpack("!BBHHH", packet[:8])
-			group_records = [src for src in iter_unpack("!4s", packet[12:12 + num_group_records * 4])]
-			logging.info("%s IGMPv3 Membership Report %02X %4X group=%s", str(cur_host), type, checksum, [get_ip(group_address) for group_address in group_records])
+			parse_idx = 8
+			group_records = []
+			while parse_idx + 4 < len(packet):
+				group_record_header = unpack("!BBH", packet[parse_idx:parse_idx+4])
+				group_record_ips = [ip[0] for ip in iter_unpack("!4s", packet[parse_idx+4:parse_idx+4+4*(1 + group_record_header[2])])]
+				group_records.append((*group_record_header, *group_record_ips))
+				parse_idx += 4 + 4 * (1 + group_record_header[2])
+			
+			logging.info("%s IGMPv3 Membership Report %02X %4X group=%s", str(cur_host), type, checksum, [get_ip(group_record[-1]) for group_record in group_records])
 		elif type == 0x17:  # Leave Group
 			logging.info("%s IGMP Leave Group Request", str(cur_host), type)
 	
@@ -345,6 +302,32 @@ class PacketEngine:
 				if "drobo_dashboard" not in cur_host.attributes["applications"]:
 					logging.info("%s Application: Drobo Dashboard", str(cur_host))
 					cur_host.attributes["applications"].append("drobo_dashboard")
+		elif dst_port == 17500:
+			if payload[0] == "{":
+				if "applications" not in cur_host.attributes:
+					cur_host.attributes["applications"] = []
+				if "drobo_lan_sync" not in cur_host.attributes["applications"]:
+					logging.info("%s Application: Drobo LAN Sync", str(cur_host))
+					cur_host.attributes["applications"].append("drobo_lan_sync")
+		elif dst_port == 7788 or dst_port == 9999:
+			# ASUS Router
+			pass
+		elif dst_port == 54915:
+			# TODO: Logitech ARX
+			endstr = 1
+			for i in range(1, len(payload)):
+				if payload[i] == 0:
+					endstr = i
+					break
+			if endstr > 1:
+				hostname = payload[1:endstr].decode("UTF-8")
+				if "applications" not in cur_host.attributes:
+					cur_host.attributes["applications"] = []
+				if "logitech_arx" not in cur_host.attributes["applications"]:
+					logging.info("%s Application: Logitech ARX", str(cur_host))
+					cur_host.attributes["applications"].append("logitech_arx")
+				if "name_logitech" not in cur_host.attributes:
+					cur_host.attributes["name_logitech"] = hostname
 		else:
 			print("Unhandled port: %d" % dst_port)
 	
@@ -384,7 +367,10 @@ class PacketEngine:
 				if text_length > 0:
 					if len(text) > 0:
 						text += delimiter
-					text += data[cur_ptr+1:cur_ptr+1+text_length].decode("utf-8")
+					try:
+						text += data[cur_ptr+1:cur_ptr+1+text_length].decode("utf-8")
+					except UnicodeDecodeError:
+						text += str(bytes(data[cur_ptr+1:cur_ptr+1+text_length]))
 				cur_ptr += 1 + text_length
 			return text, total_length
 		

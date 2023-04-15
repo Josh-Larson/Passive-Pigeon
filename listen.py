@@ -1,5 +1,6 @@
+#!/usr/bin/env python3
 import socket
-from engine import PacketEngine
+from packet_engine import PacketEngine
 import argparse
 import logging
 import constants
@@ -29,6 +30,9 @@ logger = logging.getLogger(constants.NAME)
 s = socket.socket(socket.PF_PACKET, socket.SOCK_RAW, socket.ntohs(0x0800))
 engine = PacketEngine()
 
-while True:
-	packet, remote = s.recvfrom(65535)
-	engine.handle_packet(packet)
+try:
+	while True:
+		packet, remote = s.recvfrom(65535)
+		engine.handle_packet(packet)
+except (KeyboardInterrupt, EOFError):
+	engine.display_information()
