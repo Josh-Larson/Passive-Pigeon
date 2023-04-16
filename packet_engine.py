@@ -290,6 +290,8 @@ class PacketEngine:
 			self.parse_dhcp_request(cur_host, payload)
 		elif dst_port == 68:
 			self.parse_dhcp_response(cur_host, payload)
+		elif dst_port == 10001:
+			self.parse_ubdisc(cur_host, payload)
 		elif dst_port == 15600:
 			if payload.decode("UTF-8").startswith("SEARCH BSDP/"):
 				if "os_bsdp" not in cur_host.attributes:
@@ -510,3 +512,27 @@ class PacketEngine:
 	def parse_dhcp_response(self, host, data):
 		dhcp_packet = unpack("!BBBBIHH4s4s4s4s6s10s64s128s", data[:236])
 		logging.info("DHCP Response %02X from %s", dhcp_packet[0], MACAddress(dhcp_packet[11]))
+	
+	def parse_ubdisc(self, host, data):
+		disc_version, disc_type, disc_length = unpack("!BBH", data[:4])
+		idx = 4
+		attributes = {}
+		while idx < 4 + disc_length:
+			field_type, field_length = unpack("!BH", data[idx:idx + 3])
+			field_data = data[idx + 3:idx + 3 + field_length]
+			idx += 3 + field_length
+			if field_type == 0x0A:  # Uptime
+				host.attributes["uptime_ubdisc"] = unpack("!I", field_data)[0]
+				attributes["uptime"] = unpack("!I", field_data)[0]
+			elif field_type == 0x0B:  # Hostname
+				host.attributes["hostname_ubdisc"] = field_data.decode("UTF-8")
+			elif field_type == 0x0C:  # Platform
+				host.attributes["platform_ubdisc"] = field_data.decode("UTF-8")
+			elif field_type == 0x03:  # Firmware
+				host.attributes["firmware_ubdisc"] = field_data.decode("UTF-8")
+				attributes["firmware"] = field_data.decode("UTF-8")
+			elif field_type == 0x16:  # Version
+				host.attributes["version_ubdisc"] = field_data.decode("UTF-8")
+			elif field_type == 0x19:  # Version
+				host.attributes["has_dhcp_client_ubdisc"] = field_data[0] == 1
+		logging.info("Ubiquiti Discovery  uptime=%d  firmware=%s" % (attributes.get("uptime", 0), attributes.get("firmware", "")))
