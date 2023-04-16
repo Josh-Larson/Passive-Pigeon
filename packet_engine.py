@@ -3,6 +3,7 @@ import pathlib
 import logging
 import socket
 import constants
+import ipaddress
 import re
 
 from engine.mac import MACAddress, MACAddressType
@@ -452,7 +453,7 @@ class PacketEngine:
 				if "drobo_dashboard" not in cur_host.attributes["applications"]:
 					logging.info("%s Application: Drobo Dashboard", str(cur_host))
 					cur_host.attributes["applications"].append("drobo_dashboard")
-		elif src_port == 5678 and dst_port == 5678:
+		elif dst_port == 5678:
 			self.parse_mikrotik_neighbor_discovery_protocol(cur_host, payload)
 		elif dst_port == 17500:
 			if payload[0] == "{":
@@ -697,6 +698,7 @@ class PacketEngine:
 			tlv_data = data[idx + 4:idx + 4 + tlv_length]
 			idx += 4 + tlv_length
 			tlv_strings = {
+				5: ("identity_mndp", "Identity: %s"),
 				7: ("version_mndp", "Version: %s"),
 				8: ("platform_mndp", "Platform: %s"),
 				11: ("software_id_mndp", "Software ID: %s"),
@@ -717,3 +719,8 @@ class PacketEngine:
 				if "uptime_mndp" not in host.attributes:
 					logging.log(logging.INFO, "%s Uptime: %d" % (str(host), uptime))
 				host.attributes["uptime_mndp"] = uptime
+			elif tlv_type == 15:  # IPv6 Address
+				address = ipaddress.ip_address(tlv_data)
+				if "ipv6_address_mndp" not in host.attributes:
+					logging.log(logging.INFO, "%s IPv6 Address: %d" % (str(host), address))
+				host.attributes["ipv6_address_mndp"] = address
