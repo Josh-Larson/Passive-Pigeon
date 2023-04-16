@@ -1,2 +1,2 @@
 NAME = "PassivePigeon"
-INVISIBLE = 0
+INVISIBLE = 2

@@ -81,12 +81,18 @@ class PacketEngine:
 	
 	def handle_packet(self, packet):
 		ethernet_header = unpack("!6s6sH", packet[:14])
+		type = ethernet_header[2]
+		if type < 1500 and 12 + type < len(packet):
+			self.handle_llc(packet[14:14 + type], ethernet_header)
+			return
 		if ethernet_header[2] < 0x05DC:  # 802.3 Ethernet
 			return
 		
-		type = ethernet_header[2]
 		if type == 0x0806:  # ARP
 			self.handle_arp(packet[14:], ethernet_header)
+			return
+		if type == 0x88CC:
+			self.handle_lldp(packet[14:], ethernet_header)
 			return
 		
 		if type != 0x0800 or len(packet) < 34:
@@ -102,8 +108,7 @@ class PacketEngine:
 		elif ip_payload_type == 6:  # TCP
 			pass
 		elif ip_payload_type == 17:  # UDP
-		#	pass
-		 	self.handle_udp(payload, ethernet_header, ip_header)
+			self.handle_udp(payload, ethernet_header, ip_header)
 		else:
 			print("Unknown payload: %d" % ip_payload_type)
 	
@@ -144,6 +149,144 @@ class PacketEngine:
 					logging.info("%s ARP Lookup: %s", str(cur_host), target_protocol_address_friendly)
 					cur_host.attributes["arp_lookups"].add(target_protocol_address_friendly)
 	
+	def handle_lldp(self, packet, ethernet_header):
+		cur_host = None
+		idx = 0
+		while idx+1 < len(packet):
+			tlv = unpack("!H", packet[idx:idx + 2])[0]
+			tlv_type = (tlv >> 9) & 0b01111111
+			tlv_length = tlv & 0x1FF
+			tlv_data = packet[idx + 2:idx + 2 + tlv_length]
+			idx += 2 + tlv_length
+			if idx > len(packet) or tlv == 0:
+				break
+			if tlv_type == 1:
+				if tlv_data[0] != 4:  # MAC Address
+					return
+				cur_host = self.get_host(("fake ethernet header", tlv_data[1:7]), ip_header=None)
+			
+			if cur_host is None:
+				return
+			if tlv_type == 2:  # Port ID
+				subtype = {7: "Locally assigned"}.get(tlv_data[0], str(tlv_data[0]))
+				port = tlv_data[1:].decode("UTF-8")
+				if "ethernet_port_lldp" not in cur_host.attributes:
+					logging.log(logging.INFO, "%s LLDP port '%s' of nearby switch %s" % (str(cur_host), port, MACAddress(ethernet_header[1])))
+				cur_host.attributes["ethernet_port_subtype_lldp"] = subtype
+				cur_host.attributes["ethernet_port_lldp"] = port
+			elif tlv_type == 5:  # System Name
+				if "hostname_lldp" not in cur_host.attributes:
+					logging.log(logging.INFO, "%s LLDP Hostname %s" % (str(cur_host), tlv_data.decode("UTF-8")))
+				cur_host.attributes["hostname_lldp"] = tlv_data.decode("UTF-8")
+			elif tlv_type == 6:  # System Description
+				if "description_lldp" not in cur_host.attributes:
+					logging.log(logging.INFO, "%s LLDP Description %s" % (str(cur_host), tlv_data.decode("UTF-8")))
+				cur_host.attributes["description_lldp"] = tlv_data.decode("UTF-8")
+			elif tlv_type == 7:  # Capabilities
+				capabilities, enabled_capabilities = unpack("!HH", tlv_data[:4])
+				capability_parser = {
+					1: "Other",
+					2: "Repeater",
+					4: "Bridge",
+					8: "WLAN Access Point",
+					16: "Router",
+					32: "Telephone",
+					64: "DOCSIS Cable Device",
+					128: "Station Only"
+				}
+				capabilities_parsed = ", ".join([capability_name for capability_bit, capability_name in capability_parser.items() if (capabilities & capability_bit) != 0])
+				enabled_capabilities_parsed = ", ".join([capability_name for capability_bit, capability_name in capability_parser.items() if (enabled_capabilities & capability_bit) != 0])
+				if "capabilities_lldp" not in cur_host.attributes:
+					logging.log(logging.INFO, "%s LLDP Capabilities %s" % (str(cur_host), capabilities_parsed))
+					logging.log(logging.INFO, "%s LLDP Enabled Capabilities %s" % (str(cur_host), enabled_capabilities_parsed))
+				cur_host.attributes["capabilities_lldp"] = capabilities_parsed
+				cur_host.attributes["enabled_capabilities_lldp"] = enabled_capabilities_parsed
+	
+	def handle_llc(self, packet, ethernet_header):
+		dsap, ssap, control = unpack("!BBB", packet[:3])
+		if dsap == 0xAA and ssap == 0xAA:  # Subnetwork Access Protocol
+			oui, pid = unpack("!3sH", packet[3:8])
+			if pid == 0x2000:  # Cisco Discovery Protocol
+				self.handle_cdp(packet[8:], ethernet_header)
+
+	def handle_cdp(self, packet, ethernet_header):
+		def parse_addresses(address_data):
+			address_count = unpack("!I", address_data[:4])[0]
+			address_idx = 4
+			addresses = []
+			n = 0
+			while address_idx < len(address_data) and n < address_count:
+				protocol_type, protocol_length = address_data[address_idx], address_data[address_idx + 1]
+				protocol = address_data[address_idx + 2:address_idx + 2 + protocol_length] if protocol_length > 0 else 0
+				address_length = unpack("!H", address_data[address_idx + 2 + protocol_length:address_idx + 4 + protocol_length])[0]
+				address = address_data[address_idx + 4 + protocol_length:address_idx + 4 + protocol_length + address_length]
+				address_idx += 4 + protocol_length + address_length
+				n += 1
+				if protocol == b"\xCC" and address_length == 4:  # IP
+					addresses.append(address)
+			return addresses
+		
+		cur_host = self.get_host(ethernet_header, ip_header=None)
+		cdp_version, cdp_ttl, cdp_checksum = unpack("!BBH", packet[:4])
+		calculated_checksum = sum((packet[i] << 8 | packet[i+1]) & 0xFFFF for i in range(0, len(packet), 2) if i != 2)
+		calculated_checksum = (~(((calculated_checksum >> 16) & 0xFFFF) + (calculated_checksum & 0xFFFF))) & 0xFFFF
+		if cdp_checksum != calculated_checksum:
+			return
+		idx = 4
+		while idx < len(packet):
+			field_type, field_length = unpack("!HH", packet[idx:idx + 4])
+			field_data = packet[idx + 4:idx + field_length]
+			idx += field_length
+			if field_type == 0x0002:  # Addresses
+				addresses = ", ".join(get_ip(address) for address in parse_addresses(field_data))
+				if "addresses_cdp" not in cur_host.attributes:
+					logging.log(logging.INFO, "%s Addresses: %s" % (str(cur_host), addresses))
+				cur_host.attributes["addresses_cdp"] = addresses
+			elif field_type == 0x0016:  # Management Addresses
+				addresses = ", ".join(get_ip(address) for address in parse_addresses(field_data))
+				if "management_addresses_cdp" not in cur_host.attributes:
+					logging.log(logging.INFO, "%s Management Addresses: %s" % (str(cur_host), addresses))
+				cur_host.attributes["management_addresses_cdp"] = addresses
+			elif field_type == 0x000A:  # Native VLAN
+				vlan = unpack("!H", field_data)[0]
+				if "vlan_cdp" not in cur_host.attributes:
+					logging.log(logging.INFO, "%s VLAN: %d" % (str(cur_host), vlan))
+				cur_host.attributes["vlan_cdp"] = vlan
+			elif field_type == 0x0003:  # Port ID
+				port_id = field_data.decode("UTF-8")
+				if "ethernet_port_cdp" not in cur_host.attributes:
+					logging.log(logging.INFO, "%s Port: %s" % (str(cur_host), port_id))
+				cur_host.attributes["ethernet_port_cdp"] = port_id
+			elif field_type == 0x0005:  # Software Version
+				version = field_data.decode("UTF-8")
+				if "software_version_cdp" not in cur_host.attributes:
+					logging.log(logging.INFO, "%s Software Version: %s" % (str(cur_host), version))
+				cur_host.attributes["software_version_cdp"] = version
+			elif field_type == 0x0006:  # Platform
+				platform = field_data.decode("UTF-8")
+				if "platform_cdp" not in cur_host.attributes:
+					logging.log(logging.INFO, "%s Platform: %s" % (str(cur_host), platform))
+				cur_host.attributes["platform_cdp"] = platform
+			elif field_type == 0x0004:  # Capabilities
+				capabilities_encoded = unpack("!I", field_data)[0]
+				capabilities_parser = {
+					1: "Router",
+					2: "Transparent Bridge",
+					4: "Source Route Bridge",
+					8: "Switch",
+					16: "Host",
+					32: "IGMP Capable",
+					64: "Repeater",
+					128: "VoIP Phone",
+					256: "Remotely Managed Device",
+					512: "CVTA/STP Dispute Resolution/Cisco VT Camera",
+					1024: "Two Port Mac Relay"
+				}
+				capabilities = ", ".join([capability_name for capability_bit, capability_name in capabilities_parser.items() if (capabilities_encoded & capability_bit) != 0])
+				if "capabilities_cdp" not in cur_host.attributes:
+					logging.log(logging.INFO, "%s Capabilities: %s" % (str(cur_host), capabilities))
+				cur_host.attributes["capabilities_cdp"] = capabilities
+
 	def handle_icmp(self, packet, ethernet_header, ip_header):
 		pass
 	
@@ -330,8 +473,6 @@ class PacketEngine:
 					cur_host.attributes["applications"].append("logitech_arx")
 				if "name_logitech" not in cur_host.attributes:
 					cur_host.attributes["name_logitech"] = hostname
-		else:
-			print("Unhandled port: %d" % dst_port)
 	
 	def parse_mdns(self, data):
 		mdnsh = unpack("!HBBHHHH", data[:12])
@@ -517,6 +658,7 @@ class PacketEngine:
 		disc_version, disc_type, disc_length = unpack("!BBH", data[:4])
 		idx = 4
 		attributes = {}
+		print_attributes = "firmware_ubdisc" not in host.attributes
 		while idx < 4 + disc_length:
 			field_type, field_length = unpack("!BH", data[idx:idx + 3])
 			field_data = data[idx + 3:idx + 3 + field_length]
@@ -535,4 +677,5 @@ class PacketEngine:
 				host.attributes["version_ubdisc"] = field_data.decode("UTF-8")
 			elif field_type == 0x19:  # Version
 				host.attributes["has_dhcp_client_ubdisc"] = field_data[0] == 1
-		logging.info("Ubiquiti Discovery  uptime=%d  firmware=%s" % (attributes.get("uptime", 0), attributes.get("firmware", "")))
+		if print_attributes:
+			logging.log(logging.INFO, "%s Ubiquiti Discovery: uptime=%d  firmware=%s" % (str(host), attributes.get("uptime", 0), attributes.get("firmware", "")))
