@@ -237,7 +237,11 @@ class PacketEngine:
 			field_type, field_length = unpack("!HH", packet[idx:idx + 4])
 			field_data = packet[idx + 4:idx + field_length]
 			idx += field_length
-			if field_type == 0x0002:  # Addresses
+			if field_type == 0x0001:  # Device ID
+				if field_length == 16:  # MAC Address (12 + 4)
+					mac = bytes(int(field_data[i:i+2], 16) for i in range(0, 12, 2))
+					cur_host = self.get_host(("fake ethernet header", mac), ip_header=None)
+			elif field_type == 0x0002:  # Addresses
 				addresses = ", ".join(get_ip(address) for address in parse_addresses(field_data))
 				if "addresses_cdp" not in cur_host.attributes:
 					logging.log(logging.INFO, "%s Addresses: %s" % (str(cur_host), addresses))
