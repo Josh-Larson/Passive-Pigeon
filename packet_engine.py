@@ -25,18 +25,19 @@ class Host:
 	def __init__(self, ip, mac):
 		self.ip = ip
 		self.mac = MACAddress(mac)
+		self.actual_mac = mac
 		self.friendly_names = ""
 		self.is_mac_randomized = (mac[0] & 0b00000010) != 0
 		self.attributes = {}
 	
 	def __repr__(self):
-		return "Host[%s %s]" % (self.get_ip_str(), str(self.mac))
+		return "Host[%s %s]" % (self.get_ip_str(), str(self.actual_mac))
 	
 	def get_ip_str(self):
 		return get_ip(self.ip) if self.ip is not None else "0.0.0.0"
 	
 	def get_mac_organization(self):
-		return self.mac.organization if self.mac.type == MACAddressType.REGISTERED else self.mac.type.name
+		return self.mac.organization if self.actual_mac.type == MACAddressType.REGISTERED else self.actual_mac.type.name
 	
 	def get_friendly_names(self):
 		return self.friendly_names
@@ -451,6 +452,8 @@ class PacketEngine:
 				if "drobo_dashboard" not in cur_host.attributes["applications"]:
 					logging.info("%s Application: Drobo Dashboard", str(cur_host))
 					cur_host.attributes["applications"].append("drobo_dashboard")
+		elif src_port == 5678 and dst_port == 5678:
+			self.parse_mikrotik_neighbor_discovery_protocol(cur_host, payload)
 		elif dst_port == 17500:
 			if payload[0] == "{":
 				if "applications" not in cur_host.attributes:
@@ -683,3 +686,34 @@ class PacketEngine:
 				host.attributes["has_dhcp_client_ubdisc"] = field_data[0] == 1
 		if print_attributes:
 			logging.log(logging.INFO, "%s Ubiquiti Discovery: uptime=%d  firmware=%s" % (str(host), attributes.get("uptime", 0), attributes.get("firmware", "")))
+	
+	def parse_mikrotik_neighbor_discovery_protocol(self, host, data):
+		_, _ = unpack("!HH", data[:4])  # header, sequence_number
+		idx = 4
+		while idx + 3 < len(data):
+			tlv_type, tlv_length = unpack("!HH", data[idx:idx + 4])
+			if idx + 4 + tlv_length > len(data):
+				return
+			tlv_data = data[idx + 4:idx + 4 + tlv_length]
+			idx += 4 + tlv_length
+			tlv_strings = {
+				7: ("version_mndp", "Version: %s"),
+				8: ("platform_mndp", "Platform: %s"),
+				11: ("software_id_mndp", "Software ID: %s"),
+				12: ("board_mndp", "Board: %s"),
+				16: ("interface_name_mndp", "Interface: %s"),
+			}
+			if tlv_type == 1:  # MAC Address
+				if tlv_length == 6:
+					host.actual_mac = MACAddress(tlv_data)
+			elif tlv_type in tlv_strings:  # String Base
+				tlv_data = tlv_data.decode("UTF-8")
+				key, out_string = tlv_strings[tlv_type]
+				if key not in host.attributes:
+					logging.log(logging.INFO, ("%s " + out_string) % (str(host), tlv_data))
+				host.attributes[key] = tlv_data
+			elif tlv_type == 10:  # Uptime
+				uptime = unpack("<I", tlv_data)[0]
+				if "uptime_mndp" not in host.attributes:
+					logging.log(logging.INFO, "%s Uptime: %d" % (str(host), uptime))
+				host.attributes["uptime_mndp"] = uptime
