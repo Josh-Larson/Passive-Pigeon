@@ -317,7 +317,7 @@ class PacketEngine:
 			type, _, checksum, _, num_group_records = unpack("!BBHHH", packet[:8])
 			parse_idx = 8
 			group_records = []
-			while parse_idx + 4 < len(packet):
+			for _ in range(num_group_records):
 				group_record_header = unpack("!BBH", packet[parse_idx:parse_idx+4])
 				group_record_ips = [ip[0] for ip in iter_unpack("!4s", packet[parse_idx+4:parse_idx+4+4*(1 + group_record_header[2])])]
 				group_records.append((*group_record_header, *group_record_ips))
@@ -325,7 +325,7 @@ class PacketEngine:
 			
 			logging.info("%s IGMPv3 Membership Report %02X %4X group=%s", str(cur_host), type, checksum, [get_ip(group_record[-1]) for group_record in group_records])
 		elif type == 0x17:  # Leave Group
-			logging.info("%s IGMP Leave Group Request", str(cur_host), type)
+			logging.info("%s IGMP Leave Group Request", str(cur_host))
 	
 	def handle_tcp(self, packet, ethernet_header, ip_header):
 		pass
