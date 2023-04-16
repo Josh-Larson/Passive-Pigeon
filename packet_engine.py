@@ -341,10 +341,6 @@ class PacketEngine:
 		src_port, dst_port = udp_header[0], udp_header[1]
 		
 		dst_mac = MACAddress(dst_mac)
-		broadcast_ips = [b'\xE0\x00\x00\xFB', b'\xEF\xFF\xFF\xFA', b'\xFF\xFF\xFF\xFF']
-		if (dst_mac.type == MACAddressType.LOCAL or dst_mac.type == MACAddressType.REGISTERED) and dst_ip not in broadcast_ips:
-			return
-		
 		cur_host = self.get_host(ethernet_header, ip_header)
 		
 		if dst_port != 5353 and ("ttl" not in cur_host.attributes or ttl > cur_host.attributes["ttl"]):
@@ -433,7 +429,7 @@ class PacketEngine:
 			self.parse_spotify(cur_host, payload)
 		elif dst_port == 32412 or dst_port == 32414:
 			self.parse_plex(cur_host, payload)
-		elif dst_port == 1900:
+		elif src_port == 1900 or dst_port == 1900:
 			self.parse_ssdp(cur_host, payload)
 		elif dst_port == 67:
 			self.parse_dhcp_request(cur_host, payload)
@@ -612,13 +608,20 @@ class PacketEngine:
 		data_str = data.decode("UTF-8")
 		data_lines = data_str.split("\r\n")
 		for line in data_lines:
-			if len(line) == 0:
-				break
 			if ": " in line:
-				key, value = line.split(": ", 2)
+				key, value = line.split(": ", 1)
 				if key.upper() == "USER-AGENT" and "user_agent_ssdp" not in host.attributes:
 					logging.info("%s User Agent (SSDP): %s", str(host), value)
 					host.attributes["user_agent_ssdp"] = value
+				elif key.upper() == "SERVER" and "server_ssdp" not in host.attributes:
+					logging.info("%s Server (SSDP): %s", str(host), value)
+					host.attributes["server_ssdp"] = value
+				elif key.upper() == "LOCATION" and "location_ssdp" not in host.attributes:
+					logging.info("%s Location (SSDP): %s", str(host), value)
+					host.attributes["location_ssdp"] = value
+				elif key.upper() == "WAKEUP" and "wakeup_ssdp" not in host.attributes:
+					logging.info("%s Wakeup (SSDP): %s", str(host), value)
+					host.attributes["wakeup_ssdp"] = value
 	
 	def parse_dhcp_request(self, host, data):
 		dhcp_packet = unpack("!BBBBIHH4s4s4s4s6s10s64s128s4s", data[:240])
