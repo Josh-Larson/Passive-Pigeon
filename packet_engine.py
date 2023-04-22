@@ -7,6 +7,8 @@ import ipaddress
 import re
 
 from engine.mac import MACAddress, MACAddressType
+from engine.mdns import MDNS
+from engine.parser import NetworkParser
 
 
 def get_ip(binary):
@@ -84,24 +86,33 @@ class PacketEngine:
 	def handle_packet(self, packet):
 		ethernet_header = unpack("!6s6sH", packet[:14])
 		type = ethernet_header[2]
-		if type < 1500 and 12 + type < len(packet):
-			self.handle_llc(packet[14:14 + type], ethernet_header)
+		if type == 0x8100:  # VLAN!
+			vlan_header, type = unpack("!HH", packet[14:18])
+			payload = packet[18:]
+		else:
+			payload = packet[14:]
+		
+		if type < 1500 and type <= len(payload):
+			if type != len(payload):
+				print(type)
+				print(payload)
+			self.handle_llc(payload[:type], ethernet_header)
 			return
 		if ethernet_header[2] < 0x05DC:  # 802.3 Ethernet
 			return
 		
 		if type == 0x0806:  # ARP
-			self.handle_arp(packet[14:], ethernet_header)
+			self.handle_arp(payload, ethernet_header)
 			return
 		if type == 0x88CC:
-			self.handle_lldp(packet[14:], ethernet_header)
+			self.handle_lldp(payload, ethernet_header)
 			return
 		
 		if type != 0x0800 or len(packet) < 34:
 			return
-		ip_header = unpack('!BBHHHBBH4s4s', packet[14:34])
+		ip_header = unpack('!BBHHHBBH4s4s', payload[:20])
 		ip_payload_type = ip_header[6]
-		payload = packet[14+4*(ip_header[0] & 0xF):]
+		payload = payload[4*(ip_header[0] & 0xF):]
 		
 		if ip_payload_type == 1:  # ICMP
 			self.handle_icmp(payload, ethernet_header, ip_header)
@@ -111,8 +122,6 @@ class PacketEngine:
 			pass
 		elif ip_payload_type == 17:  # UDP
 			self.handle_udp(payload, ethernet_header, ip_header)
-		else:
-			print("Unknown payload: %d" % ip_payload_type)
 	
 	def get_host(self, ethernet_header, ip_header=None):
 		src_mac = ethernet_header[1]
@@ -230,7 +239,7 @@ class PacketEngine:
 		
 		cur_host = self.get_host(ethernet_header, ip_header=None)
 		cdp_version, cdp_ttl, cdp_checksum = unpack("!BBH", packet[:4])
-		calculated_checksum = sum((packet[i] << 8 | packet[i+1]) & 0xFFFF for i in range(0, len(packet), 2) if i != 2)
+		calculated_checksum = sum((packet[i] << 8 | packet[i+1]) & 0xFFFF for i in range(0, len(packet)-1, 2) if i != 2)
 		calculated_checksum = (~(((calculated_checksum >> 16) & 0xFFFF) + (calculated_checksum & 0xFFFF))) & 0xFFFF
 		if cdp_checksum != calculated_checksum:
 			return
@@ -357,7 +366,7 @@ class PacketEngine:
 		
 		if dst_port == 5353:
 			logging.log(logging.DEBUG, "%s [%s] -> %s [%s]  PROTO %s  %d -> %d" % (cur_host.mac, get_ip(src_ip), dst_mac, get_ip(dst_ip), get_proto(ip_header[6]), src_port, dst_port))
-			queries, answers, authority, additional, flags = self.parse_mdns(payload)
+			queries, answers, authority, additional, flags = MDNS().parse_mdns(payload)
 			
 			if flags["response"] and flags["authoritative"]:
 				device_names = set([rr[1]["domain_name"] for rr in answers if "domain_name" in rr[1]] +
@@ -414,17 +423,16 @@ class PacketEngine:
 									cur_host.attributes["names_mdns_fn"] = attribute[3:]
 		elif dst_port == 137:
 			logging.log(logging.DEBUG, "%s [%s] -> %s [%s]  PROTO %s  %d -> %d" % (cur_host.mac, get_ip(src_ip), dst_mac, get_ip(dst_ip), get_proto(ip_header[6]), src_port, dst_port))
-			queries, answers, authority, additional, flags = self.parse_mdns(payload)
-			if flags["opcode"] == 6 and flags["broadcast"]:
+			queries, answers, authority, additional, flags = MDNS().parse_mdns(payload)
+			if flags["opcode"] == 5 and flags["broadcast"]:
 				for rr in additional:
-					name_encoded = rr[0]
-					if rr[3] == 32 and len(name_encoded) == 32 and (rr[1]["flags"] & 0b10000000) == 0:
-						# Such an inefficient encoding...
-						name = "".join(chr(((ord(name_encoded[i]) - 0x41) << 4) | ((ord(name_encoded[i + 1]) - 0x41) & 0xf)) for i in range(0, 32, 2))
-						name = name.strip()
-						if "name_nbns" not in cur_host.attributes:
-							logging.info("%s NetBIOS Name Service Name: %s", str(cur_host), name)
-						cur_host.attributes["name_nbns"] = name
+					name = rr[0]
+					if "name_nbns" not in cur_host.attributes:
+						logging.info("%s NetBIOS Name Service Name: %s", str(cur_host), name)
+					cur_host.attributes["name_nbns"] = name
+		elif dst_port == 138:
+			logging.log(logging.DEBUG, "%s [%s] -> %s [%s]  PROTO %s  %d -> %d" % (cur_host.mac, get_ip(src_ip), dst_mac, get_ip(dst_ip), get_proto(ip_header[6]), src_port, dst_port))
+			self.parse_nbdgm(cur_host, payload)
 		elif dst_port == 57621:
 			self.parse_spotify(cur_host, payload)
 		elif dst_port == 32412 or dst_port == 32414:
@@ -478,103 +486,60 @@ class PacketEngine:
 				if "name_logitech" not in cur_host.attributes:
 					cur_host.attributes["name_logitech"] = hostname
 	
-	def parse_mdns(self, data):
-		mdnsh = unpack("!HBBHHHH", data[:12])
-		response = (mdnsh[1] & 0b10000000) != 0
-		authoritative = (mdnsh[1] & 0b00000100) != 0
-		opcode = (mdnsh[1] & 0b01111000) >> 3
-		broadcast = (mdnsh[2] & 0b00010000) != 0
-		flags = {
-			"response": response,
-			"authoritative": authoritative,
-			"broadcast": broadcast,
-			"opcode": opcode
-		}
+	def parse_nbdgm(self, host, data):
+		data = NetworkParser(data)
+		msg_type, flags, datagram_id, source_ip, source_port, datagram_length, packet_offset = data.unpack("!BBHIHHH")
+		if msg_type != 17 or (flags & 0b11) != 0b10:  # Not direct group datagram or not first & last fragment
+			return
+		source_name = NetworkParser.decode_netbios(data.dns_string())
+		destination_name = NetworkParser.decode_netbios(data.dns_string())
+		smb_start = data.index
+		smb_type, smb, cmd, err, flags, flags2 = data.unpack("<B3sBB3xBH")
+		if smb_type == 0xFF:  # Header is 32 bytes
+			data.index += 32 - 12
+		elif smb_type == 0xFE:  # Header is 64 bytes
+			data.index += 32 - 12
+		else:
+			return
+		if cmd != 0x25 or err != 0:  # Not transaction or not success
+			return
+		encoding = "ASCII" if (flags & 1) == 0 else "UTF-16"
 		
-		# print("    %s %s %s %s %s" % (reply, opcode, auth, trnc, recursive))
-		# print("    %d %d %d %d" % (mdnsh[3], mdnsh[4], mdnsh[5], mdnsh[6]))
+		parameter_word_count = data.unpack("!B")[0]
+		parameter_words = NetworkParser(data.raw(parameter_word_count * 2))  # Apparently the word size is 2 lol
+		total_data_count, data_count, data_offset, setup_count = parameter_words.unpack("<xxH18xHHBx")
+		if data_count != total_data_count:  # Means it's a partial message
+			return
+		if data_offset == 0:  # Very inconvenient
+			return
+		if setup_count != 3 or parameter_words.unpack("<H")[0] != 1:  # Looking for "Write Mail Slot"
+			return
 		
-		def parse_text(cur_ptr, max_count=None, delimiter="."):
-			total_length = 0
-			text_length = 1
-			text = ""
-			cur_count = 0
-			using_fqdn = False
-			while (max_count is None or cur_count < max_count) and text_length > 0 and cur_ptr < len(data):
-				text_length = data[cur_ptr]
-				if (text_length & 0b11000000) == 0xC0:  # We all love special cases
-					cur_ptr = ((data[cur_ptr] & 0b00111111) << 8) | data[cur_ptr+1]
-					if not using_fqdn:
-						total_length += 2
-					using_fqdn = True
-					continue
-				if not using_fqdn:
-					total_length += 1 + text_length
-				cur_count += 1
-				if text_length > 0:
-					if len(text) > 0:
-						text += delimiter
-					try:
-						text += data[cur_ptr+1:cur_ptr+1+text_length].decode("utf-8")
-					except UnicodeDecodeError:
-						text += str(bytes(data[cur_ptr+1:cur_ptr+1+text_length]))
-				cur_ptr += 1 + text_length
-			return text, total_length
+		if data.unpack("<H")[0] != data.remaining():  # Remaining bytes
+			return
+		mailslot_name = data.c_string(1 if encoding == "ASCII" else 2)
+		if mailslot_name != b"\\MAILSLOT\\BROWSE":
+			return
+		data.index = smb_start + data_offset
+		# Rest here, we're about to enter the Browser protocol
 		
-		def parse_queries(cur_ptr, count):
-			queries = []
-			start_ptr = cur_ptr
-			for _ in range(count):
-				name, n = parse_text(cur_ptr)
-				cur_ptr += n
-				type, cls = unpack("!HH", data[cur_ptr:cur_ptr + 4])
-				cur_ptr += 4
-				queries.append([name, type, cls])
-			return queries, cur_ptr - start_ptr
-		
-		def parse_rr(cur_ptr, count):
-			rrs = []
-			start_ptr = cur_ptr
-			for _ in range(count):
-				name, n = parse_text(cur_ptr)
-				cur_ptr += n
-				type, cls, ttl, data_len = unpack("!HHIH", data[cur_ptr:cur_ptr + 10])
-				cur_ptr += 10
-				rr_data = {}
-				strings = []
-				if type == 16:
-					tmp_ptr = cur_ptr
-					while tmp_ptr < cur_ptr + data_len:
-						txt, n = parse_text(tmp_ptr, delimiter="\0")
-						txt = txt.split("\0")
-						tmp_ptr += n
-						strings += txt
-				elif type == 12:  # Domain Name PTR
-					name, _ = parse_text(cur_ptr, max_count=1)
-					rr_data["domain_name"] = name
-				elif type == 32:  # NetBIOS Name
-					tmp_ptr = cur_ptr
-					if data_len == 6:
-						flags, addr = unpack("!H4s", data[tmp_ptr:tmp_ptr+6])
-						rr_data["flags"] = flags
-						rr_data["addr"] = addr
-				cur_ptr += data_len
-				rrs.append([name, rr_data, strings, type, cls, ttl])
-			return rrs, cur_ptr - start_ptr
-		
-		ptr = 12
-		queries, n = parse_queries(ptr, mdnsh[3])
-		ptr += n
-		answers, n = parse_rr(ptr, mdnsh[4])
-		ptr += n
-		authority, n = parse_rr(ptr, mdnsh[5])
-		ptr += n
-		additional, n = parse_rr(ptr, mdnsh[6])
-		ptr += n
-		return queries, answers, authority, additional, flags
-	
+		command = data.unpack("<B")[0]
+		if command != 1 and command != 0xF:  # Not Host Announcement and Not Local Master Announcement
+			return
+		update_count, periodicity, hostname = data.unpack("<BI16s")
+		hostname = hostname.strip(b" \0").decode(encoding)
+		windows_major, windows_minor, server_type, browser_major, browser_minor, sig = data.unpack("<BBIBBH")
+		host_comment = data.c_string(1 if encoding == "ASCII" else 2).decode(encoding)
+		if "name_nbdgm" not in host.attributes:
+			logging.info("%s NetBIOS Datagram Name: %s", str(host), hostname)
+			logging.info("%s NetBIOS Datagram OS Version: %d.%d", str(host), windows_major, windows_minor)
+			logging.info("%s NetBIOS Datagram Host Comment: %s", str(host), host_comment)
+		host.attributes["name_nbdgm"] = hostname
+		host.attributes["os_nbdgm"] = "Windows %d.%d" % (windows_major, windows_minor)
+		host.attributes["comment_nbdgm"] = host_comment
+
 	def parse_spotify(self, host, data):
-		if data[:8].decode("utf-8") != "SpotUdp0":
+		if data[:8] != b"SpotUdp0":
 			return
 		
 		unique_id = sum((data[i] << ((8 - (i - 8)) * 8)) for i in range(8, 16))
@@ -605,6 +570,8 @@ class PacketEngine:
 				logging.info("%s Plex Discovery using %s", str(host), search_line[2])
 	
 	def parse_ssdp(self, host, data):
+		if b"\r\n\r\n" in data:
+			data = data[:data.index(b"\r\n\r\n")]
 		data_str = data.decode("UTF-8")
 		data_lines = data_str.split("\r\n")
 		for line in data_lines:
