@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from scapy.all import raw
 from scapy.utils import PcapReader
+from scapy.layers.l2 import Ether
 
 from packet_engine import PacketEngine
 import argparse
@@ -31,7 +32,10 @@ options = parser.parse_args()
 engine = PacketEngine()
 # Let's iterate through every packet
 for packet in read_pcap(options.capture):
-	engine.handle_packet(raw(packet[0]))
+	packet = packet[0]
+	if not isinstance(packet, Ether):
+		continue
+	engine.handle_packet(raw(packet))
 
 engine.display_information()
 
